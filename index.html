@@ -17,48 +17,82 @@
         h2 { margin-bottom: 4px; font-weight: 700; color: #FFFFFF; }
         .section-title { font-size: 1.1rem; margin-top: 24px; margin-bottom: 12px; color: #BB86FC; font-weight: 600; letter-spacing: 0.5px; }
 
-        /* Hourly horizontal scroll */
+        /* Current conditions: two cards side by side */
+        .current-container {
+            display: flex;
+            gap: 10px;
+        }
+        .current-card {
+            flex: 1;
+            border-radius: 12px;
+            padding: 14px 10px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .current-card .emoji { font-size: 2.2rem; line-height: 1; }
+        .current-card .dp { font-size: 1.6rem; font-weight: 700; color: #FFFFFF; }
+        .current-card .label { font-size: 0.9rem; font-weight: 600; color: #FFFFFF; }
+
+        /* Hourly: single horizontal scroll, each column = one hour, two stacked cards */
         .hourly-container {
             display: flex;
             overflow-x: auto;
             gap: 10px;
             padding-bottom: 12px;
         }
+        .hourly-col {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            align-items: center;
+        }
+        .hourly-col .time { font-weight: 600; font-size: 0.85rem; color: #FFFFFF; }
         .hourly-card {
-            min-width: 90px;
-            height: 120px;
+            min-width: 80px;
+            width: 80px;
+            height: 84px;
             border-radius: 12px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: space-between;
-            padding: 12px;
+            justify-content: center;
+            gap: 4px;
             box-sizing: border-box;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.05);
         }
-        .hourly-card .time { font-weight: 600; font-size: 0.85rem; color: #FFFFFF; }
-        .hourly-card .emoji { font-size: 1.8rem; }
-        .hourly-card .dp { font-size: 1rem; font-weight: 700; color: #FFFFFF; }
+        .hourly-card .emoji { font-size: 1.5rem; line-height: 1; }
+        .hourly-card .dp { font-size: 0.95rem; font-weight: 700; color: #FFFFFF; }
 
-        /* Daily rows */
+        /* Daily: two columns side by side */
         .daily-container {
+            display: flex;
+            gap: 10px;
+        }
+        .daily-col {
+            flex: 1;
             display: flex;
             flex-direction: column;
             gap: 10px;
+            min-width: 0;
         }
         .daily-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 16px;
+            padding: 12px 10px;
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             border: 1px solid rgba(255,255,255,0.05);
         }
-        .daily-row .day { font-weight: 700; width: 50px; color: #FFFFFF; font-size: 1.1rem; }
-        .daily-row .comfort-status { display: flex; align-items: center; gap: 8px; font-weight: 600; color: #FFFFFF; }
-        .daily-row .dp { font-weight: 700; color: #FFFFFF; font-size: 1.05rem; }
+        .daily-row .day { font-weight: 700; width: 24px; color: #FFFFFF; font-size: 1rem; }
+        .daily-row .emoji { font-size: 1.2rem; }
+        .daily-row .dp { font-weight: 700; color: #FFFFFF; font-size: 1rem; }
 
         .loading { text-align: center; padding: 40px; font-size: 1.1rem; color: #A0A0A0; }
     </style>
@@ -73,8 +107,13 @@
     <script>
         // --- CONFIGURATION ---
         const API_KEY = "dBDd2NsSmaumAn6u4QatKmfMljuQTyFJ"; // <-- Put your actual Tomorrow.io API Key here
-        const LAT = 41.9742;
-        const LON = -87.6581;
+
+        // Chicago first, Baldwinsville NY second. Order matters:
+        // current = left/right, hourly = top/bottom, daily = left/right.
+        const LOCATIONS = [
+            { lat: 41.9742, lon: -87.6581 },  // Chicago
+            { lat: 43.1283, lon: -76.3086 }   // Baldwinsville, NY
+        ];
 
         const DOW2 = ['Su', 'M', 'T', 'W', 'H', 'F', 'Sa'];
 
@@ -96,42 +135,88 @@
             return dpC * 9 / 5 + 32;
         }
 
+        // Pull a dew point out of a values object, calculating it if the API
+        // didn't provide one directly.
+        function getDP(values, tempKey, humKey) {
+            return values.dewPoint ?? values.dewPointAvg ??
+                calculateDewPoint(values[tempKey], values[humKey]);
+        }
+
+        async function fetchCity(loc) {
+            const response = await fetch(`https://api.tomorrow.io/v4/weather/forecast?location=${loc.lat},${loc.lon}&apikey=${API_KEY}&units=imperial`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        }
+
+        // "Now" = first minutely entry if present, otherwise first hourly entry.
+        function getCurrentValues(data) {
+            const min = data.timelines.minutely;
+            if (min && min.length > 0) return min[0].values;
+            return data.timelines.hourly[0].values;
+        }
+
         async function fetchWeather() {
             try {
-                const response = await fetch(`https://api.tomorrow.io/v4/weather/forecast?location=${LAT},${LON}&apikey=${API_KEY}&units=imperial`);
-                const data = await response.json();
+                const [chi, bvl] = await Promise.all(LOCATIONS.map(fetchCity));
+                const cities = [chi, bvl];
 
-                const hourlyData = data.timelines.hourly.slice(0, 24);
-                const dailyData = data.timelines.daily.slice(0, 6);
+                let html = '';
 
-                let html = `<div class="section-title">Next 24 Hours</div><div class="hourly-container">`;
-
-                hourlyData.forEach(h => {
-                    let dp = h.values.dewPoint ?? calculateDewPoint(h.values.temperature, h.values.humidity);
-                    let comfort = getComfort(dp);
-                    let timeLabel = new Date(h.time).toLocaleTimeString([], { hour: 'numeric' }).replace(" ", "").toLowerCase();
-
+                // --- CURRENT CONDITIONS (Chicago left, Baldwinsville right) ---
+                html += `<div class="section-title">Right Now</div><div class="current-container">`;
+                cities.forEach(data => {
+                    const v = getCurrentValues(data);
+                    const dp = getDP(v, 'temperature', 'humidity');
+                    const comfort = getComfort(dp);
                     html += `
-                        <div class="hourly-card" style="background-color: ${comfort.color}">
-                            <div class="time">${timeLabel}</div>
+                        <div class="current-card" style="background-color: ${comfort.color}">
                             <div class="emoji">${comfort.emoji}</div>
                             <div class="dp">${Math.round(dp)}°F</div>
+                            <div class="label">${comfort.label} (${comfort.level})</div>
                         </div>`;
                 });
                 html += `</div>`;
 
-                html += `<div class="section-title">6-Day Forecast</div><div class="daily-container">`;
-                dailyData.forEach(d => {
-                    let dp = d.values.dewPointAvg ?? d.values.dewPoint ?? calculateDewPoint(d.values.temperatureAvg, d.values.humidityAvg);
-                    let comfort = getComfort(dp);
-                    let dayLabel = DOW2[new Date(d.time).getDay()];
+                // --- HOURLY (one scroll strip; each column = one hour,
+                //     Chicago card on top, Baldwinsville card below) ---
+                const chiHours = chi.timelines.hourly.slice(0, 24);
+                const bvlHours = bvl.timelines.hourly.slice(0, 24);
+                const hourCount = Math.min(chiHours.length, bvlHours.length);
 
-                    html += `
-                        <div class="daily-row" style="background-color: ${comfort.color}">
-                            <div class="day">${dayLabel}</div>
-                            <div class="comfort-status"><span>${comfort.emoji}</span>${comfort.label} (${comfort.level})</div>
-                            <div class="dp">${Math.round(dp)}°F</div>
-                        </div>`;
+                html += `<div class="section-title">Next 24 Hours</div><div class="hourly-container">`;
+                for (let i = 0; i < hourCount; i++) {
+                    const timeLabel = new Date(chiHours[i].time).toLocaleTimeString([], { hour: 'numeric' }).replace(" ", "").toLowerCase();
+                    html += `<div class="hourly-col"><div class="time">${timeLabel}</div>`;
+                    [chiHours[i], bvlHours[i]].forEach(h => {
+                        const dp = getDP(h.values, 'temperature', 'humidity');
+                        const comfort = getComfort(dp);
+                        html += `
+                            <div class="hourly-card" style="background-color: ${comfort.color}">
+                                <div class="emoji">${comfort.emoji}</div>
+                                <div class="dp">${Math.round(dp)}°F</div>
+                            </div>`;
+                    });
+                    html += `</div>`;
+                }
+                html += `</div>`;
+
+                // --- DAILY (Chicago column left, Baldwinsville column right) ---
+                html += `<div class="section-title">6-Day Forecast</div><div class="daily-container">`;
+                cities.forEach(data => {
+                    const dailyData = data.timelines.daily.slice(0, 6);
+                    html += `<div class="daily-col">`;
+                    dailyData.forEach(d => {
+                        const dp = getDP(d.values, 'temperatureAvg', 'humidityAvg');
+                        const comfort = getComfort(dp);
+                        const dayLabel = DOW2[new Date(d.time).getDay()];
+                        html += `
+                            <div class="daily-row" style="background-color: ${comfort.color}">
+                                <div class="day">${dayLabel}</div>
+                                <div class="emoji">${comfort.emoji}</div>
+                                <div class="dp">${Math.round(dp)}°F</div>
+                            </div>`;
+                    });
+                    html += `</div>`;
                 });
                 html += `</div>`;
 
