@@ -117,14 +117,34 @@
 
         const DOW2 = ['Su', 'M', 'T', 'W', 'H', 'F', 'Sa'];
 
-        // Dark Primary Comfort Scale (0 to 5)
+        // Dark Primary Comfort Scale (0 to 5) — still used for label/emoji,
+        // which are inherently discrete categories.
         function getComfort(dewPoint) {
-            if (dewPoint >= 75) return { label: 'Oppressive', level: 5, emoji: '🔥', color: '#B71C1C' }; // Deep Dark Red
-            if (dewPoint >= 70) return { label: 'Very Humid', level: 4, emoji: '🥵', color: '#E65100' }; // Deep Dark Orange
-            if (dewPoint >= 65) return { label: 'Humid', level: 3, emoji: '💦', color: '#F57C00' };      // Dark Amber
-            if (dewPoint >= 60) return { label: 'Sticky', level: 2, emoji: '💧', color: '#00695C' };     // Deep Teal
-            if (dewPoint >= 55) return { label: 'Pleasant', level: 1, emoji: '✨', color: '#1B5E20' };   // Deep Dark Green
-            return { label: 'Refreshing', level: 0, emoji: '🍃', color: '#0D47A1' };                    // Deep Primary Blue
+            if (dewPoint >= 75) return { label: 'Oppressive', level: 5, emoji: '🔥' };
+            if (dewPoint >= 70) return { label: 'Very Humid', level: 4, emoji: '🥵' };
+            if (dewPoint >= 65) return { label: 'Humid', level: 3, emoji: '💦' };
+            if (dewPoint >= 60) return { label: 'Sticky', level: 2, emoji: '💧' };
+            if (dewPoint >= 55) return { label: 'Pleasant', level: 1, emoji: '✨' };
+            return { label: 'Refreshing', level: 0, emoji: '🍃' };
+        }
+
+        // Continuous color on a cool-to-hot spectrum, so a 1°F change in dew
+        // point never produces an abrupt jump the way discrete buckets did.
+        // Hue sweeps a single direction from blue (calm/dry) through
+        // teal/green/yellow to red (humid/oppressive); saturation and
+        // lightness deepen slightly as it gets hotter for extra intensity.
+        const DP_COLOR_MIN = 45;   // hue = 220 (blue) at/below this dew point
+        const DP_COLOR_MAX = 80;   // hue = 0 (red) at/above this dew point
+
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        function clamp01(t) { return Math.max(0, Math.min(1, t)); }
+
+        function getDewPointColor(dewPoint) {
+            const t = clamp01((dewPoint - DP_COLOR_MIN) / (DP_COLOR_MAX - DP_COLOR_MIN));
+            const hue = lerp(220, 0, t);
+            const sat = lerp(70, 90, t);
+            const light = lerp(30, 44, t);
+            return `hsl(${hue.toFixed(1)}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)`;
         }
 
         function calculateDewPoint(tempF, humidityPct) {
@@ -168,8 +188,9 @@
                     const v = getCurrentValues(data);
                     const dp = getDP(v, 'temperature', 'humidity');
                     const comfort = getComfort(dp);
+                    const color = getDewPointColor(dp);
                     html += `
-                        <div class="current-card" style="background-color: ${comfort.color}">
+                        <div class="current-card" style="background-color: ${color}">
                             <div class="emoji">${comfort.emoji}</div>
                             <div class="dp">${Math.round(dp)}°F</div>
                             <div class="label">${comfort.label} (${comfort.level})</div>
@@ -190,8 +211,9 @@
                     [chiHours[i], bvlHours[i]].forEach(h => {
                         const dp = getDP(h.values, 'temperature', 'humidity');
                         const comfort = getComfort(dp);
+                        const color = getDewPointColor(dp);
                         html += `
-                            <div class="hourly-card" style="background-color: ${comfort.color}">
+                            <div class="hourly-card" style="background-color: ${color}">
                                 <div class="emoji">${comfort.emoji}</div>
                                 <div class="dp">${Math.round(dp)}°F</div>
                             </div>`;
@@ -208,9 +230,10 @@
                     dailyData.forEach(d => {
                         const dp = getDP(d.values, 'temperatureAvg', 'humidityAvg');
                         const comfort = getComfort(dp);
+                        const color = getDewPointColor(dp);
                         const dayLabel = DOW2[new Date(d.time).getDay()];
                         html += `
-                            <div class="daily-row" style="background-color: ${comfort.color}">
+                            <div class="daily-row" style="background-color: ${color}">
                                 <div class="day">${dayLabel}</div>
                                 <div class="emoji">${comfort.emoji}</div>
                                 <div class="dp">${Math.round(dp)}°F</div>
