@@ -55,19 +55,21 @@
         .hourly-card {
             min-width: 80px;
             width: 80px;
-            height: 84px;
+            min-height: 84px;
             border-radius: 12px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             gap: 4px;
+            padding: 6px 4px;
             box-sizing: border-box;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.05);
         }
         .hourly-card .emoji { font-size: 1.5rem; line-height: 1; }
         .hourly-card .dp { font-size: 0.95rem; font-weight: 700; color: #FFFFFF; }
+        .hourly-card .label { font-size: 0.65rem; font-weight: 600; color: #FFFFFF; text-align: center; line-height: 1.1; opacity: 0.9; }
 
         /* Daily: two columns side by side */
         .daily-container {
@@ -90,9 +92,19 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             border: 1px solid rgba(255,255,255,0.05);
         }
-        .daily-row .day { font-weight: 700; width: 24px; color: #FFFFFF; font-size: 1rem; }
-        .daily-row .emoji { font-size: 1.2rem; }
-        .daily-row .dp { font-weight: 700; color: #FFFFFF; font-size: 1rem; }
+        .daily-row .day { font-weight: 700; width: 24px; color: #FFFFFF; font-size: 1rem; flex-shrink: 0; }
+        .daily-row .emoji { font-size: 1.2rem; flex-shrink: 0; }
+        .daily-row .label {
+            flex: 1;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #FFFFFF;
+            padding: 0 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .daily-row .dp { font-weight: 700; color: #FFFFFF; font-size: 1rem; flex-shrink: 0; }
 
         .loading { text-align: center; padding: 40px; font-size: 1.1rem; color: #A0A0A0; }
     </style>
@@ -118,14 +130,15 @@
         const DOW2 = ['Su', 'M', 'T', 'W', 'H', 'F', 'Sa'];
 
         // Dark Primary Comfort Scale (0 to 5) — still used for label/emoji,
-        // which are inherently discrete categories.
+        // which are inherently discrete categories. `short` is an
+        // abbreviated form for the tighter hourly/daily cards.
         function getComfort(dewPoint) {
-            if (dewPoint >= 75) return { label: 'Oppressive', level: 5, emoji: '🔥' };
-            if (dewPoint >= 70) return { label: 'Very Humid', level: 4, emoji: '🥵' };
-            if (dewPoint >= 65) return { label: 'Humid', level: 3, emoji: '💦' };
-            if (dewPoint >= 60) return { label: 'Sticky', level: 2, emoji: '💧' };
-            if (dewPoint >= 55) return { label: 'Pleasant', level: 1, emoji: '✨' };
-            return { label: 'Refreshing', level: 0, emoji: '🍃' };
+            if (dewPoint >= 75) return { label: 'Oppressive', short: 'Oppr.', level: 5, emoji: '🔥' };
+            if (dewPoint >= 70) return { label: 'Very Humid', short: 'V.Humid', level: 4, emoji: '🥵' };
+            if (dewPoint >= 65) return { label: 'Humid', short: 'Humid', level: 3, emoji: '💦' };
+            if (dewPoint >= 60) return { label: 'Sticky', short: 'Sticky', level: 2, emoji: '💧' };
+            if (dewPoint >= 55) return { label: 'Pleasant', short: 'Pleasant', level: 1, emoji: '✨' };
+            return { label: 'Refreshing', short: 'Fresh', level: 0, emoji: '🍃' };
         }
 
         // Continuous color on a cool-to-hot spectrum, so a 1°F change in dew
@@ -240,6 +253,7 @@
                             <div class="hourly-card" style="background-color: ${color}">
                                 <div class="emoji">${comfort.emoji}</div>
                                 <div class="dp">${Math.round(dp)}°F</div>
+                                <div class="label">${comfort.short}</div>
                             </div>`;
                     });
                     html += `</div>`;
@@ -260,6 +274,7 @@
                             <div class="daily-row" style="background-color: ${color}">
                                 <div class="day">${dayLabel}</div>
                                 <div class="emoji">${comfort.emoji}</div>
+                                <div class="label">${comfort.short}</div>
                                 <div class="dp">${Math.round(dp)}°F</div>
                             </div>`;
                     });
