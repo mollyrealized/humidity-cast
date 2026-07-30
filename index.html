@@ -130,21 +130,45 @@
 
         // Continuous color on a cool-to-hot spectrum, so a 1°F change in dew
         // point never produces an abrupt jump the way discrete buckets did.
-        // Hue sweeps a single direction from blue (calm/dry) through
-        // teal/green/yellow to red (humid/oppressive); saturation and
-        // lightness deepen slightly as it gets hotter for extra intensity.
-        const DP_COLOR_MIN = 45;   // hue = 220 (blue) at/below this dew point
-        const DP_COLOR_MAX = 80;   // hue = 0 (red) at/above this dew point
+        // Green is confined to the comfortable end (Refreshing/Pleasant) and
+        // burns off quickly through yellow so that Sticky/Humid/Very Humid/
+        // Oppressive all stay in the amber-orange-red family — nothing in
+        // the "uncomfortable" half of the scale should ever read as green.
+        // Stops are (dewPoint, hue, saturation%, lightness%); color is
+        // linearly interpolated between whichever two stops the current dew
+        // point falls between, so the path is continuous with no seams.
+        const COLOR_STOPS = [
+            { dp: 45, h: 220, s: 70, l: 30 },  // Refreshing — blue
+            { dp: 50, h: 175, s: 65, l: 28 },  // cool transition — teal
+            { dp: 55, h: 130, s: 60, l: 26 },  // Pleasant — green
+            { dp: 58, h: 70,  s: 65, l: 30 },  // warming fast — yellow
+            { dp: 63, h: 35,  s: 85, l: 38 },  // Sticky→Humid boundary — amber
+            { dp: 70, h: 15,  s: 90, l: 42 },  // Very Humid — deep orange
+            { dp: 80, h: 0,   s: 90, l: 44 },  // Oppressive — red
+        ];
 
         function lerp(a, b, t) { return a + (b - a) * t; }
-        function clamp01(t) { return Math.max(0, Math.min(1, t)); }
 
         function getDewPointColor(dewPoint) {
-            const t = clamp01((dewPoint - DP_COLOR_MIN) / (DP_COLOR_MAX - DP_COLOR_MIN));
-            const hue = lerp(220, 0, t);
-            const sat = lerp(70, 90, t);
-            const light = lerp(30, 44, t);
-            return `hsl(${hue.toFixed(1)}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)`;
+            const stops = COLOR_STOPS;
+            if (dewPoint <= stops[0].dp) {
+                const s = stops[0];
+                return `hsl(${s.h}, ${s.s}%, ${s.l}%)`;
+            }
+            const last = stops[stops.length - 1];
+            if (dewPoint >= last.dp) {
+                return `hsl(${last.h}, ${last.s}%, ${last.l}%)`;
+            }
+            for (let i = 0; i < stops.length - 1; i++) {
+                const a = stops[i], b = stops[i + 1];
+                if (dewPoint >= a.dp && dewPoint <= b.dp) {
+                    const t = (dewPoint - a.dp) / (b.dp - a.dp);
+                    const hue = lerp(a.h, b.h, t);
+                    const sat = lerp(a.s, b.s, t);
+                    const light = lerp(a.l, b.l, t);
+                    return `hsl(${hue.toFixed(1)}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)`;
+                }
+            }
         }
 
         function calculateDewPoint(tempF, humidityPct) {
