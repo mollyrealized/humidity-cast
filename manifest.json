@@ -1,5 +1,5 @@
 {
-  "name": "Humidity Dashboard",
+  "name": "Humidity",
   "short_name": "Humidity",
   "start_url": "index.html",
   "display": "standalone",
