@@ -128,7 +128,37 @@
         }
         .daily-row .dp { font-weight: 700; color: #FFFFFF; font-size: 1rem; flex-shrink: 0; }
 
+        .stamp { margin-top: 18px; font-size: 0.7rem; color: #6E6E6E; letter-spacing: 0.2px; }
+
         .loading { text-align: center; padding: 40px; font-size: 1.1rem; color: #A0A0A0; }
+
+        /* Error state: says what actually went wrong instead of guessing. */
+        .error-box {
+            margin-top: 24px;
+            padding: 16px;
+            border-radius: 12px;
+            background-color: #2A1A1E;
+            border: 1px solid #CF6679;
+        }
+        .error-title { font-weight: 700; color: #CF6679; margin-bottom: 8px; font-size: 1rem; }
+        .error-detail {
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: #E0E0E0;
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
+        .retry-btn {
+            margin-top: 14px;
+            padding: 10px 18px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background-color: #3A2A2E;
+            color: #FFFFFF;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: inherit;
+        }
     </style>
 </head>
 <body>
@@ -137,6 +167,50 @@
     <div id="app-content">
         <div class="loading">Loading forecast data...</div>
     </div>
+
+    <script>
+        // --- ERROR TRAP -------------------------------------------------
+        // Deliberately its own <script> block, placed before the main one.
+        // A syntax error inside a script block kills that entire block, so a
+        // handler installed in the same block would never register and the
+        // page would sit on "Loading..." forever with nothing explaining why.
+        // Registered here, it survives to report on the block below it.
+        window.__rendered = false;
+
+        window.showError = function (message) {
+            if (window.__rendered) return;
+            var el = document.getElementById('app-content');
+            if (!el) return;
+            var safe = String(message).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+            el.innerHTML =
+                '<div class="error-box">' +
+                    '<div class="error-title">Couldn\'t load the forecast</div>' +
+                    '<div class="error-detail">' + safe + '</div>' +
+                    (typeof window.__retry === 'function'
+                        ? '<button id="retry-btn" class="retry-btn">Retry</button>'
+                        : '') +
+                '</div>';
+            var btn = document.getElementById('retry-btn');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    el.innerHTML = '<div class="loading">Loading forecast data...</div>';
+                    window.__retry();
+                });
+            }
+        };
+
+        window.addEventListener('error', function (e) {
+            var where = e.filename ? ' [' + e.filename + (e.lineno ? ':' + e.lineno : '') + ']' : '';
+            window.showError('Script error: ' + (e.message || 'unknown') + where);
+        });
+
+        window.addEventListener('unhandledrejection', function (e) {
+            var r = e.reason;
+            window.showError('Unhandled rejection: ' + ((r && r.message) || r));
+        });
+    </script>
 
     <script>
         // --- CONFIGURATION ---
@@ -153,6 +227,11 @@
         // Around Chicago's latitude civil twilight begins roughly 28-33 min
         // before sunrise depending on season, so 30 is close year-round.
         const CIVIL_DAWN_OFFSET_MIN = 30;
+
+        // Hard ceiling on the API call. Without this a request that opens but
+        // never answers leaves the page on "Loading..." indefinitely, since a
+        // promise that never settles reaches neither the render nor the catch.
+        const FETCH_TIMEOUT_MS = 15000;
 
         // Hourly layout. COLS x ROWS is the total number of hours shown;
         // two of the four columns are visible at once (see .hourly-col).
@@ -254,4 +333,209 @@
 
         // Lowest dew point among the hourly entries that overlap
         // [now, windowEnd). Comparison is on the rounded (displayed) dew
-        //
+        // point. Consecutive hours sharing that minimum merge into one span;
+        // separate spans that tie are broken by the lower actual temperature,
+        // then by whichever comes first.
+        function driestSpan(hours, windowEnd, now) {
+            const candidates = [];
+            for (const h of hours) {
+                const start = new Date(h.time);
+                if (start.getTime() + HOUR_MS <= now.getTime()) continue;
+                if (start >= windowEnd) break;
+                candidates.push({
+                    start: start,
+                    dp: Math.round(getDP(h.values, 'temperature', 'humidity')),
+                    temp: h.values.temperature ?? Number.POSITIVE_INFINITY
+                });
+            }
+            if (candidates.length === 0) return null;
+
+            let min = candidates[0].dp;
+            for (const c of candidates) if (c.dp < min) min = c.dp;
+
+            const runs = [];
+            let current = null;
+            for (const c of candidates) {
+                if (c.dp !== min) { current = null; continue; }
+                if (current && c.start.getTime() === current.end.getTime()) {
+                    current.end = new Date(c.start.getTime() + HOUR_MS);
+                    if (c.temp < current.minTemp) current.minTemp = c.temp;
+                } else {
+                    current = {
+                        start: c.start,
+                        end: new Date(c.start.getTime() + HOUR_MS),
+                        minTemp: c.temp
+                    };
+                    runs.push(current);
+                }
+            }
+
+            let best = runs[0];
+            for (const r of runs) if (r.minTemp < best.minTemp) best = r;
+
+            return { dp: min, label: `${hourLabel(best.start)}-${hourLabel(best.end)}` };
+        }
+
+        // First civil dawn after `now`, derived from the daily timeline's
+        // sunrise times. Falls back to now + 24h if sunrise data is absent.
+        function getNextCivilDawn(data, now) {
+            const daily = (data.timelines && data.timelines.daily) || [];
+            for (const d of daily) {
+                const sunrise = d.values.sunriseTime;
+                if (!sunrise) continue;
+                const dawn = new Date(new Date(sunrise).getTime() - CIVIL_DAWN_OFFSET_MIN * 60000);
+                if (dawn > now) return dawn;
+            }
+            return new Date(now.getTime() + 24 * HOUR_MS);
+        }
+
+        function renderDriest(data) {
+            const now = new Date();
+            const hours = data.timelines.hourly;
+
+            const sleepEnd = new Date(now);
+            sleepEnd.setHours(SLEEP_HOUR, 0, 0, 0);
+            const sleepPassed = sleepEnd <= now;
+            const sleepSpan = sleepPassed ? null : driestSpan(hours, sleepEnd, now);
+
+            const dawnEnd = getNextCivilDawn(data, now);
+            const dawnSpan = driestSpan(hours, dawnEnd, now);
+
+            const sleepText = sleepPassed ? '(passed)' : (sleepSpan ? sleepSpan.label : '—');
+            const dawnText = dawnSpan ? dawnSpan.label : '—';
+
+            return `
+                <div class="driest">
+                    <div>Driest hour (before sleep): ${sleepText}</div>
+                    <div>Driest hour (before dawn): ${dawnText}</div>
+                </div>`;
+        }
+
+        // Aborts rather than hanging, reports the real HTTP status and body,
+        // and bypasses any cache (including a service worker's) so a stale
+        // entry can't be served in place of a live forecast.
+        async function fetchForecast(loc) {
+            const controller = new AbortController();
+            const timer = setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS);
+            const url = `https://api.tomorrow.io/v4/weather/forecast?location=${loc.lat},${loc.lon}&apikey=${API_KEY}&units=imperial`;
+            try {
+                const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+                if (!response.ok) {
+                    let detail = '';
+                    try { detail = (await response.text()).slice(0, 300); } catch (e) { /* body unreadable */ }
+                    throw new Error(`api.tomorrow.io returned HTTP ${response.status}.\n${detail}`);
+                }
+                return await response.json();
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    throw new Error(`No response from api.tomorrow.io within ${FETCH_TIMEOUT_MS / 1000} seconds. The request opened but never came back.`);
+                }
+                throw err;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        // "Now" = first minutely entry if present, otherwise first hourly entry.
+        function getCurrentValues(data) {
+            const min = data.timelines.minutely;
+            if (min && min.length > 0) return min[0].values;
+            return data.timelines.hourly[0].values;
+        }
+
+        async function fetchWeather() {
+            try {
+                const data = await fetchForecast(LOCATION);
+
+                if (!data || !data.timelines || !data.timelines.hourly || !data.timelines.daily) {
+                    throw new Error('The API answered, but the response had no hourly/daily timelines in it.');
+                }
+
+                let html = '';
+
+                // --- CURRENT CONDITIONS ---
+                const nowValues = getCurrentValues(data);
+                const nowDp = getDP(nowValues, 'temperature', 'humidity');
+                const nowComfort = getComfort(nowDp);
+                html += `
+                    <div class="section-title">Right Now</div>
+                    <div class="current-container">
+                        <div class="current-card" style="background-color: ${getDewPointColor(nowDp)}">
+                            <div class="emoji">${nowComfort.emoji}</div>
+                            <div class="dp">${Math.round(nowDp)}°F</div>
+                            <div class="label">${nowComfort.label} (${nowComfort.level})</div>
+                        </div>
+                    </div>`;
+
+                // --- DRIEST HOURS ---
+                if (SHOW_DRIEST_HOURS) {
+                    html += renderDriest(data);
+                }
+
+                // --- HOURLY (fills each column top to bottom, then moves right) ---
+                const hours = data.timelines.hourly.slice(0, HOURLY_COLS * HOURLY_ROWS);
+
+                html += `<div class="section-title">Next 24 Hours</div><div class="hourly-scroll">`;
+                for (let c = 0; c < HOURLY_COLS; c++) {
+                    const colStart = c * HOURLY_ROWS;
+                    if (colStart >= hours.length) break;
+                    html += `<div class="hourly-col">`;
+                    for (let r = 0; r < HOURLY_ROWS; r++) {
+                        const h = hours[colStart + r];
+                        if (!h) break;
+                        const dp = getDP(h.values, 'temperature', 'humidity');
+                        const comfort = getComfort(dp);
+                        html += `
+                            <div class="hourly-cell" style="background-color: ${getDewPointColor(dp)}">
+                                <div class="time">${hourLabel(new Date(h.time))}</div>
+                                <div class="emoji">${comfort.emoji}</div>
+                                <div class="label">${comfort.short}</div>
+                                <div class="dp">${Math.round(dp)}°F</div>
+                            </div>`;
+                    }
+                    html += `</div>`;
+                }
+                html += `</div>`;
+
+                // --- DAILY (grid-auto-flow: column puts days 1-3 in the left
+                //     column and days 4-6 in the right) ---
+                const dailyData = data.timelines.daily.slice(0, DAILY_COUNT);
+
+                html += `<div class="section-title">6-Day Forecast</div><div class="daily-container">`;
+                dailyData.forEach(d => {
+                    const dp = getDP(d.values, 'temperatureAvg', 'humidityAvg');
+                    const comfort = getComfort(dp);
+                    const dayLabel = DOW2[new Date(d.time).getDay()];
+                    html += `
+                        <div class="daily-row" style="background-color: ${getDewPointColor(dp)}">
+                            <div class="day">${dayLabel}</div>
+                            <div class="emoji">${comfort.emoji}</div>
+                            <div class="label">${comfort.short}</div>
+                            <div class="dp">${Math.round(dp)}°F</div>
+                        </div>`;
+                });
+                html += `</div>`;
+
+                // Fetch time, so a page held in a cache is obvious at a glance.
+                html += `<div class="stamp">Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>`;
+
+                document.getElementById('app-content').innerHTML = html;
+                window.__rendered = true;
+            } catch (err) {
+                window.showError((err && err.message) ? err.message : String(err));
+            }
+        }
+
+        // Lets the Retry button re-run the fetch without a full page reload.
+        window.__retry = fetchWeather;
+
+        // Registration failure must not surface as an unhandled rejection and
+        // paint an error over an otherwise working forecast.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(function () { /* no service worker available */ });
+        }
+
+        fetchWeather();
+    </script>
+</body>
+</html>
