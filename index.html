@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Humidity Forecast</title>
+    <title>HumidityCast</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#121212">
+    <meta name="application-name" content="HumidityCast">
+    <meta name="apple-mobile-web-app-title" content="HumidityCast">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -17,7 +19,7 @@
         h2 { margin-bottom: 4px; font-weight: 700; color: #FFFFFF; }
         .section-title { font-size: 1.1rem; margin-top: 24px; margin-bottom: 12px; color: #BB86FC; font-weight: 600; letter-spacing: 0.5px; }
 
-        /* Current conditions: two cards side by side */
+        /* Current conditions: one full-width card */
         .current-container {
             display: flex;
             gap: 10px;
@@ -38,7 +40,7 @@
         .current-card .dp { font-size: 1.6rem; font-weight: 700; color: #FFFFFF; }
         .current-card .label { font-size: 0.9rem; font-weight: 600; color: #FFFFFF; }
 
-        /* Driest-hour readout: deliberately quiet, sits under the current cards */
+        /* Driest-hour readout: deliberately quiet, sits under the current card */
         .driest {
             margin-top: 10px;
             font-size: 0.78rem;
@@ -47,50 +49,59 @@
             letter-spacing: 0.2px;
         }
 
-        /* Hourly: single horizontal scroll, each column = one hour, two stacked cards */
-        .hourly-container {
+        /* Hourly: 4 columns x 6 rows of thin single-line cells, filled top to
+           bottom then left to right. The strip scrolls horizontally and each
+           column is exactly half the visible width, so two columns (12 hours)
+           sit on screen at a time and snapping lands cleanly on a column. */
+        .hourly-scroll {
             display: flex;
-            overflow-x: auto;
             gap: 10px;
+            overflow-x: auto;
             padding-bottom: 12px;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
         }
         .hourly-col {
+            flex: 0 0 calc(50% - 5px);
+            min-width: 0;
             display: flex;
             flex-direction: column;
             gap: 6px;
-            align-items: center;
+            scroll-snap-align: start;
         }
-        .hourly-col .time { font-weight: 600; font-size: 0.85rem; color: #FFFFFF; }
-        .hourly-card {
-            min-width: 80px;
-            width: 80px;
-            min-height: 84px;
-            border-radius: 12px;
+        .hourly-cell {
             display: flex;
-            flex-direction: column;
             align-items: center;
-            justify-content: center;
-            gap: 4px;
-            padding: 6px 4px;
+            gap: 6px;
+            padding: 8px;
+            border-radius: 10px;
             box-sizing: border-box;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            box-shadow: 0 3px 5px rgba(0,0,0,0.25);
             border: 1px solid rgba(255,255,255,0.05);
-        }
-        .hourly-card .emoji { font-size: 1.5rem; line-height: 1; }
-        .hourly-card .dp { font-size: 0.95rem; font-weight: 700; color: #FFFFFF; }
-        .hourly-card .label { font-size: 0.65rem; font-weight: 600; color: #FFFFFF; text-align: center; line-height: 1.1; opacity: 0.9; }
-
-        /* Daily: two columns side by side */
-        .daily-container {
-            display: flex;
-            gap: 10px;
-        }
-        .daily-col {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
             min-width: 0;
+        }
+        .hourly-cell .time { font-weight: 700; font-size: 0.78rem; color: #FFFFFF; width: 28px; flex-shrink: 0; }
+        .hourly-cell .emoji { font-size: 0.95rem; line-height: 1; flex-shrink: 0; }
+        .hourly-cell .label {
+            flex: 1;
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #FFFFFF;
+            opacity: 0.9;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hourly-cell .dp { font-weight: 700; font-size: 0.85rem; color: #FFFFFF; flex-shrink: 0; }
+
+        /* Daily: 2 columns x 3 rows, filled top to bottom then left to right.
+           grid-auto-flow: column is what produces the down-then-over order. */
+        .daily-container {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-rows: repeat(3, auto);
+            grid-auto-flow: column;
+            gap: 10px;
         }
         .daily-row {
             display: flex;
@@ -98,8 +109,10 @@
             justify-content: space-between;
             padding: 12px 10px;
             border-radius: 12px;
+            box-sizing: border-box;
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             border: 1px solid rgba(255,255,255,0.05);
+            min-width: 0;
         }
         .daily-row .day { font-weight: 700; width: 24px; color: #FFFFFF; font-size: 1rem; flex-shrink: 0; }
         .daily-row .emoji { font-size: 1.2rem; flex-shrink: 0; }
@@ -120,7 +133,7 @@
 </head>
 <body>
 
-    <h2>Humidity Dashboard</h2>
+    <h2>HumidityCast</h2>
     <div id="app-content">
         <div class="loading">Loading forecast data...</div>
     </div>
@@ -141,13 +154,15 @@
         // before sunrise depending on season, so 30 is close year-round.
         const CIVIL_DAWN_OFFSET_MIN = 30;
 
-        // Chicago first, Baldwinsville NY second. Order matters:
-        // current = left/right, hourly = top/bottom, daily = left/right.
-        // Index 0 is "home" and is the only one the driest-hour lines use.
-        const LOCATIONS = [
-            { lat: 41.972907159856874, lon: -87.66423613246087 },  // Chicago (home)
-            { lat: 43.1283, lon: -76.3086 }                        // Baldwinsville, NY
-        ];
+        // Hourly layout. COLS x ROWS is the total number of hours shown;
+        // two of the four columns are visible at once (see .hourly-col).
+        const HOURLY_COLS = 4;
+        const HOURLY_ROWS = 6;
+
+        // Days shown in the 6-day grid (2 columns x 3 rows).
+        const DAILY_COUNT = 6;
+
+        const LOCATION = { lat: 41.972907159856874, lon: -87.66423613246087 };  // Chicago
 
         const DOW2 = ['Su', 'M', 'T', 'W', 'H', 'F', 'Sa'];
 
@@ -221,12 +236,9 @@
                 calculateDewPoint(values[tempKey], values[humKey]);
         }
 
-        // --- DRIEST-HOUR HELPERS ---------------------------------------
-        // All of this runs once per forecast fetch over at most ~30 hourly
-        // entries, so the cost is trivial and nothing re-computes on a timer.
-
         const HOUR_MS = 3600000;
 
+        // Shared by the driest-hour lines and the hourly cells.
         // 0 -> "12a", 11 -> "11a", 12 -> "12p", 23 -> "11p"
         function hourLabel(d) {
             let h = d.getHours();
@@ -236,185 +248,10 @@
             return `${h}${suffix}`;
         }
 
+        // --- DRIEST-HOUR HELPERS ---------------------------------------
+        // All of this runs once per forecast fetch over at most ~30 hourly
+        // entries, so the cost is trivial and nothing re-computes on a timer.
+
         // Lowest dew point among the hourly entries that overlap
         // [now, windowEnd). Comparison is on the rounded (displayed) dew
-        // point. Consecutive hours sharing that minimum merge into one span;
-        // separate spans that tie are broken by the lower actual temperature,
-        // then by whichever comes first.
-        function driestSpan(hours, windowEnd, now) {
-            const candidates = [];
-            for (const h of hours) {
-                const start = new Date(h.time);
-                if (start.getTime() + HOUR_MS <= now.getTime()) continue;
-                if (start >= windowEnd) break;
-                candidates.push({
-                    start: start,
-                    dp: Math.round(getDP(h.values, 'temperature', 'humidity')),
-                    temp: h.values.temperature ?? Number.POSITIVE_INFINITY
-                });
-            }
-            if (candidates.length === 0) return null;
-
-            let min = candidates[0].dp;
-            for (const c of candidates) if (c.dp < min) min = c.dp;
-
-            const runs = [];
-            let current = null;
-            for (const c of candidates) {
-                if (c.dp !== min) { current = null; continue; }
-                if (current && c.start.getTime() === current.end.getTime()) {
-                    current.end = new Date(c.start.getTime() + HOUR_MS);
-                    if (c.temp < current.minTemp) current.minTemp = c.temp;
-                } else {
-                    current = {
-                        start: c.start,
-                        end: new Date(c.start.getTime() + HOUR_MS),
-                        minTemp: c.temp
-                    };
-                    runs.push(current);
-                }
-            }
-
-            let best = runs[0];
-            for (const r of runs) if (r.minTemp < best.minTemp) best = r;
-
-            return { dp: min, label: `${hourLabel(best.start)}-${hourLabel(best.end)}` };
-        }
-
-        // First civil dawn after `now`, derived from the daily timeline's
-        // sunrise times. Falls back to now + 24h if sunrise data is absent.
-        function getNextCivilDawn(data, now) {
-            const daily = (data.timelines && data.timelines.daily) || [];
-            for (const d of daily) {
-                const sunrise = d.values.sunriseTime;
-                if (!sunrise) continue;
-                const dawn = new Date(new Date(sunrise).getTime() - CIVIL_DAWN_OFFSET_MIN * 60000);
-                if (dawn > now) return dawn;
-            }
-            return new Date(now.getTime() + 24 * HOUR_MS);
-        }
-
-        function renderDriest(data) {
-            const now = new Date();
-            const hours = data.timelines.hourly;
-
-            const sleepEnd = new Date(now);
-            sleepEnd.setHours(SLEEP_HOUR, 0, 0, 0);
-            const sleepPassed = sleepEnd <= now;
-            const sleepSpan = sleepPassed ? null : driestSpan(hours, sleepEnd, now);
-
-            const dawnEnd = getNextCivilDawn(data, now);
-            const dawnSpan = driestSpan(hours, dawnEnd, now);
-
-            const sleepText = sleepPassed ? '(passed)' : (sleepSpan ? sleepSpan.label : '—');
-            const dawnText = dawnSpan ? dawnSpan.label : '—';
-
-            return `
-                <div class="driest">
-                    <div>Driest hour (before sleep): ${sleepText}</div>
-                    <div>Driest hour (before dawn): ${dawnText}</div>
-                </div>`;
-        }
-
-        async function fetchCity(loc) {
-            const response = await fetch(`https://api.tomorrow.io/v4/weather/forecast?location=${loc.lat},${loc.lon}&apikey=${API_KEY}&units=imperial`);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-        }
-
-        // "Now" = first minutely entry if present, otherwise first hourly entry.
-        function getCurrentValues(data) {
-            const min = data.timelines.minutely;
-            if (min && min.length > 0) return min[0].values;
-            return data.timelines.hourly[0].values;
-        }
-
-        async function fetchWeather() {
-            try {
-                const [chi, bvl] = await Promise.all(LOCATIONS.map(fetchCity));
-                const cities = [chi, bvl];
-
-                let html = '';
-
-                // --- CURRENT CONDITIONS (Chicago left, Baldwinsville right) ---
-                html += `<div class="section-title">Right Now</div><div class="current-container">`;
-                cities.forEach(data => {
-                    const v = getCurrentValues(data);
-                    const dp = getDP(v, 'temperature', 'humidity');
-                    const comfort = getComfort(dp);
-                    const color = getDewPointColor(dp);
-                    html += `
-                        <div class="current-card" style="background-color: ${color}">
-                            <div class="emoji">${comfort.emoji}</div>
-                            <div class="dp">${Math.round(dp)}°F</div>
-                            <div class="label">${comfort.label} (${comfort.level})</div>
-                        </div>`;
-                });
-                html += `</div>`;
-
-                // --- DRIEST HOURS (home only) ---
-                if (SHOW_DRIEST_HOURS) {
-                    html += renderDriest(chi);
-                }
-
-                // --- HOURLY (one scroll strip; each column = one hour,
-                //     Chicago card on top, Baldwinsville card below) ---
-                const chiHours = chi.timelines.hourly.slice(0, 24);
-                const bvlHours = bvl.timelines.hourly.slice(0, 24);
-                const hourCount = Math.min(chiHours.length, bvlHours.length);
-
-                html += `<div class="section-title">Next 24 Hours</div><div class="hourly-container">`;
-                for (let i = 0; i < hourCount; i++) {
-                    const timeLabel = new Date(chiHours[i].time).toLocaleTimeString([], { hour: 'numeric' }).replace(" ", "").toLowerCase();
-                    html += `<div class="hourly-col"><div class="time">${timeLabel}</div>`;
-                    [chiHours[i], bvlHours[i]].forEach(h => {
-                        const dp = getDP(h.values, 'temperature', 'humidity');
-                        const comfort = getComfort(dp);
-                        const color = getDewPointColor(dp);
-                        html += `
-                            <div class="hourly-card" style="background-color: ${color}">
-                                <div class="emoji">${comfort.emoji}</div>
-                                <div class="dp">${Math.round(dp)}°F</div>
-                                <div class="label">${comfort.short}</div>
-                            </div>`;
-                    });
-                    html += `</div>`;
-                }
-                html += `</div>`;
-
-                // --- DAILY (Chicago column left, Baldwinsville column right) ---
-                html += `<div class="section-title">6-Day Forecast</div><div class="daily-container">`;
-                cities.forEach(data => {
-                    const dailyData = data.timelines.daily.slice(0, 6);
-                    html += `<div class="daily-col">`;
-                    dailyData.forEach(d => {
-                        const dp = getDP(d.values, 'temperatureAvg', 'humidityAvg');
-                        const comfort = getComfort(dp);
-                        const color = getDewPointColor(dp);
-                        const dayLabel = DOW2[new Date(d.time).getDay()];
-                        html += `
-                            <div class="daily-row" style="background-color: ${color}">
-                                <div class="day">${dayLabel}</div>
-                                <div class="emoji">${comfort.emoji}</div>
-                                <div class="label">${comfort.short}</div>
-                                <div class="dp">${Math.round(dp)}°F</div>
-                            </div>`;
-                    });
-                    html += `</div>`;
-                });
-                html += `</div>`;
-
-                document.getElementById('app-content').innerHTML = html;
-            } catch (err) {
-                document.getElementById('app-content').innerHTML = `<div class="loading" style="color:#CF6679;">Failed to fetch weather data. Check your API key.</div>`;
-            }
-        }
-
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
-        }
-
-        fetchWeather();
-    </script>
-</body>
-</html>
+        //
