@@ -252,13 +252,15 @@
         // (refreshing). No gradient/interpolation -- every dew point maps to
         // exactly one of these six colors. `short` is an abbreviated label
         // for the tighter daily cards.
+        // `text` is the readable text color for that background -- yellow and
+        // light blue are too light for white text, so they get black instead.
         const COMFORT_LEVELS = [
-            { min: 75,        label: 'Oppressive',  short: 'Oppr.',    color: '#FF0000' },
-            { min: 70,        label: 'Very Humid',  short: 'V.Humid',  color: '#FF9900' },
-            { min: 65,        label: 'Humid',       short: 'Humid',    color: '#FFFF00' },
-            { min: 60,        label: 'Sticky',       short: 'Sticky',   color: '#00CC00' },
-            { min: 55,        label: 'Pleasant',    short: 'Pleasant', color: '#00FFFF' },
-            { min: -Infinity, label: 'Refreshing',  short: 'Fresh',    color: '#0000FF' },
+            { min: 75,        label: 'Oppressive',  short: 'Oppr.',    color: '#FF0000', text: '#FFFFFF' },
+            { min: 70,        label: 'Very Humid',  short: 'V.Humid',  color: '#FF9900', text: '#FFFFFF' },
+            { min: 65,        label: 'Humid',       short: 'Humid',    color: '#FFFF00', text: '#000000' },
+            { min: 60,        label: 'Sticky',       short: 'Sticky',   color: '#00CC00', text: '#FFFFFF' },
+            { min: 55,        label: 'Pleasant',    short: 'Pleasant', color: '#00FFFF', text: '#000000' },
+            { min: -Infinity, label: 'Refreshing',  short: 'Fresh',    color: '#0000FF', text: '#FFFFFF' },
         ];
 
         function getComfort(dewPoint) {
@@ -431,9 +433,9 @@
                 html += `
                     <div class="section-title">Right Now</div>
                     <div class="current-container">
-                        <div class="current-card" style="background-color: ${getDewPointColor(nowDp)}">
-                            <div class="dp">${Math.round(nowDp)}°F</div>
-                            <div class="label">${nowComfort.label}</div>
+                        <div class="current-card" style="background-color: ${nowComfort.color}; color: ${nowComfort.text}">
+                            <div class="dp" style="color: ${nowComfort.text}">${Math.round(nowDp)}°F</div>
+                            <div class="label" style="color: ${nowComfort.text}">${nowComfort.label}</div>
                         </div>
                     </div>`;
 
@@ -472,10 +474,10 @@
                     const comfort = getComfort(dp);
                     const dayLabel = DOW2[new Date(d.time).getDay()];
                     html += `
-                        <div class="daily-row" style="background-color: ${getDewPointColor(dp)}">
-                            <div class="day">${dayLabel}</div>
-                            <div class="label">${comfort.short}</div>
-                            <div class="dp">${Math.round(dp)}°F</div>
+                        <div class="daily-row" style="background-color: ${comfort.color}; color: ${comfort.text}">
+                            <div class="day" style="color: ${comfort.text}">${dayLabel}</div>
+                            <div class="label" style="color: ${comfort.text}">${comfort.short}</div>
+                            <div class="dp" style="color: ${comfort.text}">${Math.round(dp)}°F</div>
                         </div>`;
                 });
                 html += `</div>`;
