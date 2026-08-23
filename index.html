@@ -254,14 +254,14 @@
         // for the tighter daily cards.
         // `text` is the readable text color for that background -- yellow and
         // light blue are too light for white text, so they get black instead.
-        const COMFORT_LEVELS = [
-            { min: 75,        label: 'Oppressive',  short: 'Oppr.',    color: '#FF0000', text: '#FFFFFF' },
-            { min: 70,        label: 'Very Humid',  short: 'V.Humid',  color: '#FF9900', text: '#FFFFFF' },
-            { min: 65,        label: 'Humid',       short: 'Humid',    color: '#FFFF00', text: '#000000' },
-            { min: 60,        label: 'Sticky',       short: 'Sticky',   color: '#00CC00', text: '#FFFFFF' },
-            { min: 55,        label: 'Pleasant',    short: 'Pleasant', color: '#00FFFF', text: '#000000' },
-            { min: -Infinity, label: 'Refreshing',  short: 'Fresh',    color: '#0000FF', text: '#FFFFFF' },
-        ];
+		const COMFORT_LEVELS = [
+			{ min: 75,        label: 'Oppressive',  short: 'Oppr.',    color: '#FF0000', text: '#FFFFFF' },
+			{ min: 70,        label: 'Very Humid',  short: 'V.Humid',  color: '#FF4C4C', text: '#FFFFFF' },
+			{ min: 65,        label: 'Humid',       short: 'Humid',    color: '#FF8888', text: '#000000' },
+			{ min: 60,        label: 'Sticky',      short: 'Sticky',   color: '#FFC8C8', text: '#000000' },
+			{ min: 55,        label: 'Pleasant',    short: 'Pleasant', color: '#00FFFF', text: '#000000' },
+			{ min: -Infinity, label: 'Refreshing',  short: 'Fresh',    color: '#0000FF', text: '#FFFFFF' },
+		];
 
         function getComfort(dewPoint) {
             for (const level of COMFORT_LEVELS) {
