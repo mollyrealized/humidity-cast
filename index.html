@@ -36,7 +36,6 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.05);
         }
-        .current-card .emoji { font-size: 2.2rem; line-height: 1; }
         .current-card .dp { font-size: 1.6rem; font-weight: 700; color: #FFFFFF; }
         .current-card .label { font-size: 0.9rem; font-weight: 600; color: #FFFFFF; }
 
@@ -49,50 +48,36 @@
             letter-spacing: 0.2px;
         }
 
-        /* Hourly: 4 columns x 6 rows of thin single-line cells, filled top to
-           bottom then left to right. The strip scrolls horizontally and each
-           column is exactly half the visible width, so two columns (12 hours)
-           sit on screen at a time and snapping lands cleanly on a column. */
-        .hourly-scroll {
-            display: flex;
-            gap: 10px;
-            overflow-x: auto;
-            padding-bottom: 12px;
-            scroll-snap-type: x mandatory;
-            -webkit-overflow-scrolling: touch;
+        /* Hourly: a borderless 24-column, 2-row table -- hour numbers on top,
+           a solid humidity-color block underneath with no text in it. Using
+           table-layout: fixed with width: 100% guarantees all 24 columns
+           divide the available (portrait) screen width evenly, so the full
+           24 hours always fit on screen at once with no horizontal scroll. */
+        .hourly-table {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+            margin: 0;
         }
-        .hourly-col {
-            flex: 0 0 calc(50% - 5px);
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            scroll-snap-align: start;
+        .hourly-table td {
+            padding: 0;
+            margin: 0;
+            text-align: center;
         }
-        .hourly-cell {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px;
-            border-radius: 10px;
-            box-sizing: border-box;
-            box-shadow: 0 3px 5px rgba(0,0,0,0.25);
-            border: 1px solid rgba(255,255,255,0.05);
-            min-width: 0;
-        }
-        .hourly-cell .time { font-weight: 700; font-size: 0.78rem; color: #FFFFFF; width: 28px; flex-shrink: 0; }
-        .hourly-cell .emoji { font-size: 0.95rem; line-height: 1; flex-shrink: 0; }
-        .hourly-cell .label {
-            flex: 1;
-            font-size: 0.68rem;
+        .hourly-table .hourly-hours td {
+            font-size: clamp(6px, 2.6vw, 11px);
+            line-height: 1.3;
             font-weight: 600;
-            color: #FFFFFF;
-            opacity: 0.9;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            color: #E0E0E0;
         }
-        .hourly-cell .dp { font-weight: 700; font-size: 0.85rem; color: #FFFFFF; flex-shrink: 0; }
+        .hourly-table .hourly-blocks td {
+            height: 26px;
+        }
+        .hourly-block {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
 
         /* Daily: 2 columns x 3 rows, filled top to bottom then left to right.
            grid-auto-flow: column is what produces the down-then-over order. */
@@ -115,7 +100,6 @@
             min-width: 0;
         }
         .daily-row .day { font-weight: 700; width: 24px; color: #FFFFFF; font-size: 1rem; flex-shrink: 0; }
-        .daily-row .emoji { font-size: 1.2rem; flex-shrink: 0; }
         .daily-row .label {
             flex: 1;
             font-size: 0.8rem;
@@ -159,6 +143,22 @@
             font-weight: 600;
             font-family: inherit;
         }
+
+        /* Force-update bar: always visible at the bottom, independent of
+           app-content, so it works even while the app is showing an error. */
+        .update-bar { margin-top: 28px; text-align: center; }
+        .update-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background-color: #1E1E1E;
+            color: #E0E0E0;
+            font-size: 0.78rem;
+            font-weight: 600;
+            font-family: inherit;
+        }
+        .update-btn:disabled { opacity: 0.6; }
+        .update-status { display: block; margin-top: 6px; font-size: 0.7rem; color: #6E6E6E; }
     </style>
 </head>
 <body>
@@ -166,6 +166,11 @@
     <h2>HumidityCast</h2>
     <div id="app-content">
         <div class="loading">Loading forecast data...</div>
+    </div>
+
+    <div class="update-bar">
+        <button id="force-update-btn" class="update-btn" type="button">Force Update</button>
+        <span id="update-status" class="update-status"></span>
     </div>
 
     <script>
@@ -233,10 +238,8 @@
         // promise that never settles reaches neither the render nor the catch.
         const FETCH_TIMEOUT_MS = 15000;
 
-        // Hourly layout. COLS x ROWS is the total number of hours shown;
-        // two of the four columns are visible at once (see .hourly-col).
-        const HOURLY_COLS = 4;
-        const HOURLY_ROWS = 6;
+        // Number of hours shown in the humidity bar (one column per hour).
+        const HOURLY_COUNT = 24;
 
         // Days shown in the 6-day grid (2 columns x 3 rows).
         const DAILY_COUNT = 6;
@@ -245,59 +248,27 @@
 
         const DOW2 = ['Su', 'M', 'T', 'W', 'H', 'F', 'Sa'];
 
-        // Dark Primary Comfort Scale (0 to 5) — still used for label/emoji,
-        // which are inherently discrete categories. `short` is an
-        // abbreviated form for the tighter hourly/daily cards.
-        function getComfort(dewPoint) {
-            if (dewPoint >= 75) return { label: 'Oppressive', short: 'Oppr.', level: 5, emoji: '🔥' };
-            if (dewPoint >= 70) return { label: 'Very Humid', short: 'V.Humid', level: 4, emoji: '🥵' };
-            if (dewPoint >= 65) return { label: 'Humid', short: 'Humid', level: 3, emoji: '💦' };
-            if (dewPoint >= 60) return { label: 'Sticky', short: 'Sticky', level: 2, emoji: '💧' };
-            if (dewPoint >= 55) return { label: 'Pleasant', short: 'Pleasant', level: 1, emoji: '✨' };
-            return { label: 'Refreshing', short: 'Fresh', level: 0, emoji: '🍃' };
-        }
-
-        // Continuous color on a cool-to-hot spectrum, so a 1°F change in dew
-        // point never produces an abrupt jump the way discrete buckets did.
-        // Green is confined to the comfortable end (Refreshing/Pleasant) and
-        // burns off quickly through yellow so that Sticky/Humid/Very Humid/
-        // Oppressive all stay in the amber-orange-red family — nothing in
-        // the "uncomfortable" half of the scale should ever read as green.
-        // Stops are (dewPoint, hue, saturation%, lightness%); color is
-        // linearly interpolated between whichever two stops the current dew
-        // point falls between, so the path is continuous with no seams.
-        const COLOR_STOPS = [
-            { dp: 45, h: 220, s: 70, l: 30 },  // Refreshing — blue
-            { dp: 50, h: 175, s: 65, l: 28 },  // cool transition — teal
-            { dp: 55, h: 130, s: 60, l: 26 },  // Pleasant — green
-            { dp: 58, h: 70,  s: 65, l: 30 },  // warming fast — yellow
-            { dp: 63, h: 35,  s: 85, l: 38 },  // Sticky→Humid boundary — amber
-            { dp: 70, h: 15,  s: 90, l: 42 },  // Very Humid — deep orange
-            { dp: 80, h: 0,   s: 90, l: 44 },  // Oppressive — red
+        // Fixed six-color comfort scale, worst (overwhelming) to best
+        // (refreshing). No gradient/interpolation -- every dew point maps to
+        // exactly one of these six colors. `short` is an abbreviated label
+        // for the tighter daily cards.
+        const COMFORT_LEVELS = [
+            { min: 75,        label: 'Oppressive',  short: 'Oppr.',    color: '#FF0000' },
+            { min: 70,        label: 'Very Humid',  short: 'V.Humid',  color: '#FF9900' },
+            { min: 65,        label: 'Humid',       short: 'Humid',    color: '#FFFF00' },
+            { min: 60,        label: 'Sticky',       short: 'Sticky',   color: '#00CC00' },
+            { min: 55,        label: 'Pleasant',    short: 'Pleasant', color: '#00FFFF' },
+            { min: -Infinity, label: 'Refreshing',  short: 'Fresh',    color: '#0000FF' },
         ];
 
-        function lerp(a, b, t) { return a + (b - a) * t; }
+        function getComfort(dewPoint) {
+            for (const level of COMFORT_LEVELS) {
+                if (dewPoint >= level.min) return level;
+            }
+        }
 
         function getDewPointColor(dewPoint) {
-            const stops = COLOR_STOPS;
-            if (dewPoint <= stops[0].dp) {
-                const s = stops[0];
-                return `hsl(${s.h}, ${s.s}%, ${s.l}%)`;
-            }
-            const last = stops[stops.length - 1];
-            if (dewPoint >= last.dp) {
-                return `hsl(${last.h}, ${last.s}%, ${last.l}%)`;
-            }
-            for (let i = 0; i < stops.length - 1; i++) {
-                const a = stops[i], b = stops[i + 1];
-                if (dewPoint >= a.dp && dewPoint <= b.dp) {
-                    const t = (dewPoint - a.dp) / (b.dp - a.dp);
-                    const hue = lerp(a.h, b.h, t);
-                    const sat = lerp(a.s, b.s, t);
-                    const light = lerp(a.l, b.l, t);
-                    return `hsl(${hue.toFixed(1)}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)`;
-                }
-            }
+            return getComfort(dewPoint).color;
         }
 
         function calculateDewPoint(tempF, humidityPct) {
@@ -461,9 +432,8 @@
                     <div class="section-title">Right Now</div>
                     <div class="current-container">
                         <div class="current-card" style="background-color: ${getDewPointColor(nowDp)}">
-                            <div class="emoji">${nowComfort.emoji}</div>
                             <div class="dp">${Math.round(nowDp)}°F</div>
-                            <div class="label">${nowComfort.label} (${nowComfort.level})</div>
+                            <div class="label">${nowComfort.label}</div>
                         </div>
                     </div>`;
 
@@ -472,30 +442,25 @@
                     html += renderDriest(data);
                 }
 
-                // --- HOURLY (fills each column top to bottom, then moves right) ---
-                const hours = data.timelines.hourly.slice(0, HOURLY_COLS * HOURLY_ROWS);
+                // --- HOURLY (borderless 24-column humidity bar: hour numbers
+                //     on top, a solid color block underneath) ---
+                const hours = data.timelines.hourly.slice(0, HOURLY_COUNT);
 
-                html += `<div class="section-title">Next 24 Hours</div><div class="hourly-scroll">`;
-                for (let c = 0; c < HOURLY_COLS; c++) {
-                    const colStart = c * HOURLY_ROWS;
-                    if (colStart >= hours.length) break;
-                    html += `<div class="hourly-col">`;
-                    for (let r = 0; r < HOURLY_ROWS; r++) {
-                        const h = hours[colStart + r];
-                        if (!h) break;
-                        const dp = getDP(h.values, 'temperature', 'humidity');
-                        const comfort = getComfort(dp);
-                        html += `
-                            <div class="hourly-cell" style="background-color: ${getDewPointColor(dp)}">
-                                <div class="time">${hourLabel(new Date(h.time))}</div>
-                                <div class="emoji">${comfort.emoji}</div>
-                                <div class="label">${comfort.short}</div>
-                                <div class="dp">${Math.round(dp)}°F</div>
-                            </div>`;
-                    }
-                    html += `</div>`;
-                }
-                html += `</div>`;
+                let hourCells = '';
+                let blockCells = '';
+                hours.forEach(h => {
+                    const dp = getDP(h.values, 'temperature', 'humidity');
+                    const hh = String(new Date(h.time).getHours()).padStart(2, '0');
+                    hourCells += `<td>${hh}</td>`;
+                    blockCells += `<td><div class="hourly-block" style="background-color: ${getDewPointColor(dp)}"></div></td>`;
+                });
+
+                html += `
+                    <div class="section-title">Next 24 Hours</div>
+                    <table class="hourly-table"><tbody>
+                        <tr class="hourly-hours">${hourCells}</tr>
+                        <tr class="hourly-blocks">${blockCells}</tr>
+                    </tbody></table>`;
 
                 // --- DAILY (grid-auto-flow: column puts days 1-3 in the left
                 //     column and days 4-6 in the right) ---
@@ -509,7 +474,6 @@
                     html += `
                         <div class="daily-row" style="background-color: ${getDewPointColor(dp)}">
                             <div class="day">${dayLabel}</div>
-                            <div class="emoji">${comfort.emoji}</div>
                             <div class="label">${comfort.short}</div>
                             <div class="dp">${Math.round(dp)}°F</div>
                         </div>`;
@@ -534,6 +498,34 @@
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(function () { /* no service worker available */ });
         }
+
+        // Force Update: unregisters every service worker for this page and
+        // clears every cache it created, then reloads. This is the manual
+        // equivalent of clearing site data in browser settings, without
+        // having to leave the page -- needed because a plain reload can
+        // keep serving whatever the service worker already cached.
+        async function forceUpdate() {
+            const btn = document.getElementById('force-update-btn');
+            const status = document.getElementById('update-status');
+            if (btn) btn.disabled = true;
+            if (status) status.textContent = 'Updating…';
+            try {
+                if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map(r => r.unregister()));
+                }
+                if ('caches' in window) {
+                    const keys = await caches.keys();
+                    await Promise.all(keys.map(k => caches.delete(k)));
+                }
+            } catch (e) {
+                // Reload anyway -- a partial cleanup is still better than none.
+            }
+            location.reload();
+        }
+
+        const forceUpdateBtn = document.getElementById('force-update-btn');
+        if (forceUpdateBtn) forceUpdateBtn.addEventListener('click', forceUpdate);
 
         fetchWeather();
     </script>
