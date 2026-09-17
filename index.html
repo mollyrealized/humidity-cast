@@ -468,7 +468,7 @@
                     <div class="section-title">Right Now</div>
                     <div class="current-container">
                         <div class="current-card" style="background-color: ${nowComfort.color}; color: ${nowComfort.text}">
-                            <div class="dp" style="color: ${nowComfort.text}">${Math.round(nowDp)}°F</div>
+                            <div class="dp" style="color: ${nowComfort.text}">${Math.round(nowDp)}</div>
                             <div class="label" style="color: ${nowComfort.text}">${nowComfort.label}</div>
                         </div>
                     </div>`;
@@ -522,7 +522,7 @@
                     html += `
                         <div class="daily-row" style="background-color: ${comfort.color}; color: ${comfort.text}">
                             <div class="day" style="color: ${comfort.text}">${dayLabel}</div>
-                            <div class="temp" style="color: ${comfort.text}">T${high}</div>
+                            <div class="temp" style="color: ${comfort.text}">T-${high}</div>
                             <div class="dp" style="color: ${comfort.text}">${dpRounded}</div>
                             <div class="pair" style="color: ${comfort.text}">${high}/${dpRounded}</div>
                         </div>`;
