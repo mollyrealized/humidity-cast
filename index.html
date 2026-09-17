@@ -98,19 +98,53 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             border: 1px solid rgba(255,255,255,0.05);
             min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+
+            /* Makes the row itself the reference for the @container rule
+               below, so the crunch fallback keys off the actual width of a
+               grid cell rather than the width of the whole screen. */
+            container-type: inline-size;
         }
         .daily-row .day { font-weight: 700; width: 24px; color: #FFFFFF; font-size: 1rem; flex-shrink: 0; }
-        .daily-row .label {
+
+        /* High temperature, centered, "T" prefixed so the two bare numbers
+           can't be mistaken for each other. */
+        .daily-row .temp {
             flex: 1;
-            font-size: 0.8rem;
-            font-weight: 600;
+            min-width: 0;
+            text-align: center;
+            font-weight: 700;
+            font-size: 1rem;
             color: #FFFFFF;
-            padding: 0 8px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            padding: 0 4px;
         }
         .daily-row .dp { font-weight: 700; color: #FFFFFF; font-size: 1rem; flex-shrink: 0; }
+
+        /* Crunched form: one right-justified temp/dew-point pair. Hidden until
+           the row is too narrow to hold the split layout. margin-left: auto
+           pushes it to the right edge with the day label still at the left. */
+        .daily-row .pair {
+            display: none;
+            margin-left: auto;
+            font-weight: 700;
+            font-size: 1rem;
+            color: #FFFFFF;
+            flex-shrink: 0;
+        }
+
+        @container (max-width: 135px) {
+            .daily-row .temp, .daily-row .dp { display: none; }
+            .daily-row .pair { display: block; }
+        }
+
+        /* Fallback for browsers without container query support. At this
+           viewport width a grid cell is already down around 145px, so the
+           two rules fire at roughly the same point rather than fighting. */
+        @media (max-width: 330px) {
+            .daily-row .temp, .daily-row .dp { display: none; }
+            .daily-row .pair { display: block; }
+        }
 
         .stamp { margin-top: 18px; font-size: 0.7rem; color: #6E6E6E; letter-spacing: 0.2px; }
 
@@ -473,11 +507,24 @@
                     const dp = getDP(d.values, 'temperatureAvg', 'humidityAvg');
                     const comfort = getComfort(dp);
                     const dayLabel = DOW2[new Date(d.time).getDay()];
+
+                    // Daily high. temperatureMax is what Tomorrow.io returns
+                    // for the daily timeline; the avg fallback only matters if
+                    // a response comes back without it.
+                    const highRaw = d.values.temperatureMax ?? d.values.temperatureAvg;
+                    const high = (highRaw === undefined || highRaw === null)
+                        ? '--' : Math.round(highRaw);
+                    const dpRounded = Math.round(dp);
+
+                    // Both forms are emitted every time; CSS decides which one
+                    // is visible, so nothing has to re-render on a resize or
+                    // a rotation.
                     html += `
                         <div class="daily-row" style="background-color: ${comfort.color}; color: ${comfort.text}">
                             <div class="day" style="color: ${comfort.text}">${dayLabel}</div>
-                            <div class="label" style="color: ${comfort.text}">${comfort.short}</div>
-                            <div class="dp" style="color: ${comfort.text}">${Math.round(dp)}°F</div>
+                            <div class="temp" style="color: ${comfort.text}">T${high}</div>
+                            <div class="dp" style="color: ${comfort.text}">${dpRounded}</div>
+                            <div class="pair" style="color: ${comfort.text}">${high}/${dpRounded}</div>
                         </div>`;
                 });
                 html += `</div>`;
