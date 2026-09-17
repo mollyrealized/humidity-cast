@@ -248,14 +248,20 @@
 
         const DOW2 = ['Su', 'M', 'T', 'W', 'H', 'F', 'Sa'];
 
-		const COMFORT_LEVELS = [
-			{ min: 75,        label: 'Oppressive',  short: 'Oppr.',    color: '#FF0000', text: '#FFFFFF' },
-			{ min: 70,        label: 'Very Humid',  short: 'V.Humid',  color: '#FF4C4C', text: '#FFFFFF' },
-			{ min: 65,        label: 'Humid',       short: 'Humid',    color: '#FF8888', text: '#000000' },
-			{ min: 60,        label: 'Sticky',      short: 'Sticky',   color: '#FFC8C8', text: '#000000' },
-			{ min: 55,        label: 'Pleasant',    short: 'Pleasant', color: '#00FFFF', text: '#000000' },
-			{ min: -Infinity, label: 'Refreshing',  short: 'Fresh',    color: '#0000FF', text: '#FFFFFF' },
-		];
+        // Colors are the Noto Color Emoji face values for the squares the
+        // Pushbullet script sends, so the two apps show the same color for
+        // the same dew point. Pushbullet bodies are plain text, so the
+        // squares are the only color available there; matching to them
+        // rather than the other way around keeps one source of truth.
+        // ⬛ #424242  🟥 #F44336  🟧 #FF9800  🟨 #FFCC32  🟩 #7CB342  🟦 #1976D2
+        const COMFORT_LEVELS = [
+            { min: 75,        label: 'Oppressive',  short: 'Oppr.',    color: '#424242', text: '#FFFFFF' },
+            { min: 70,        label: 'Very Humid',  short: 'V.Humid',  color: '#F44336', text: '#000000' },
+            { min: 65,        label: 'Humid',       short: 'Humid',    color: '#FF9800', text: '#000000' },
+            { min: 60,        label: 'Sticky',      short: 'Sticky',   color: '#FFCC32', text: '#000000' },
+            { min: 55,        label: 'Pleasant',    short: 'Pleasant', color: '#7CB342', text: '#000000' },
+            { min: -Infinity, label: 'Refreshing',  short: 'Fresh',    color: '#1976D2', text: '#FFFFFF' },
+        ];
 
         function getComfort(dewPoint) {
             for (const level of COMFORT_LEVELS) {
